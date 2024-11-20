@@ -1,7 +1,17 @@
 package fsft.fsftbuffer;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.util.concurrent.ConcurrentSkipListSet;
 
+/**
+ * A finite-space finite-time buffer that provides the following methods:
+ * <ul>
+ * <li>{@link #put(Bufferable)}: add an object to the buffer</li>
+ * <li>{@link #get(String)}: retrieve an object from the buffer</li>
+ * <li>{@link #touch(String)}: update the last refresh time for an object</li>
+ * </ul>
+ */
 public class FSFTBuffer<B extends Bufferable> {
 
     /* the default buffer size is 32 objects */
@@ -10,7 +20,51 @@ public class FSFTBuffer<B extends Bufferable> {
     /* the default timeout value is 180 seconds */
     public static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(180);
 
-    /* TODO: Implement this datatype */
+    private final int capacity;
+    private final Duration timeoutDuration;
+
+    private final ConcurrentSkipListSet<Item> buffer = new ConcurrentSkipListSet<>(
+            (i1, i2) -> i1.timeused.compareTo(i2.timeused));
+
+    /**
+     * An item in the buffer that holds the object and metadata
+     */
+    private class Item {
+        private final B value;
+        private Instant timeout;
+        private Instant timeused;
+
+        public Item(B b) {
+            this.value = b;
+            this.timeout = Instant.now().plus(timeoutDuration);
+            this.timeused = Instant.now();
+        }
+
+        /**
+         * update the last access time for the object
+         * @return {@code true} if update is successful, {@code false} otherwise
+         */
+        public boolean use() {
+            if (Instant.now().isBefore(timeout)) {
+                timeused = Instant.now();
+                return true;
+            }
+            return false;
+        }
+
+        /**
+         * refresh the timeout and the last access time for the object
+         * @return {@code true} if refresh is successful, {@code false} otherwise
+         */
+        public boolean refresh() {
+            if (Instant.now().isBefore(timeout)) {
+                timeout = Instant.now().plus(timeoutDuration);
+                timeused = Instant.now();
+                return true;
+            }
+            return false;
+        }
+    }
 
     /**
      * Create a buffer with a fixed capacity and a timeout value.
@@ -22,7 +76,8 @@ public class FSFTBuffer<B extends Bufferable> {
      *                 be in the buffer before it times out
      */
     public FSFTBuffer(int capacity, Duration timeout) {
-        // TODO: implement this constructor
+        this.capacity = capacity;
+        this.timeoutDuration = timeout;
     }
 
     /**
@@ -41,22 +96,32 @@ public class FSFTBuffer<B extends Bufferable> {
      * {@code b.id()}.
      */
     public boolean put(B b) {
-        // TODO: implement this method
-        return false;
+        if (b == null) {
+            return false;
+        }
+        buffer.stream().findAny().ifPresent(i -> {
+            if (i.value.id().equals(b.id())) {
+                buffer.remove(i);
+            }
+        });
+        while (buffer.size() >= capacity) {
+            buffer.pollFirst();
+        }
+        buffer.add(new Item(b));
+        return true;
     }
 
     /**
      * @param id the identifier of the object to be retrieved
      * @return the object that matches the identifier from the
-     * buffer
+     *         buffer
      */
-    public B get(String id) {
-        /* TODO: change this */
-        /* Do not return null. Throw a suitable checked exception when an object
-            is not in the cache. You can add the checked exception to the method
-            signature. You can change the method signature to include a throws
-            clause. */
-        return null;
+    public B get(String id) throws InvalidIdentifierException {
+        Item item = buffer.stream().filter(i -> i.value.id().equals(id)).findAny().orElse(null);
+        if (item == null || !item.use()) {
+            throw new InvalidIdentifierException("No object with the id: " + id + " found in the buffer");
+        }
+        return item.value;
     }
 
     /**
@@ -68,7 +133,10 @@ public class FSFTBuffer<B extends Bufferable> {
      * @return true if successful and false otherwise
      */
     public boolean touch(String id) {
-        /* TODO: Implement this method */
-        return false;
+        Item item = buffer.stream().filter(i -> i.value.id().equals(id)).findAny().orElse(null);
+        if (item == null || !item.refresh()) {
+            return false;
+        }
+        return true;
     }
 }

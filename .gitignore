@@ -32,3 +32,7 @@ settings.gradle
 gradlew
 *.bat
 gradle/
+<<<<<<< HEAD
+=======
+.vscode/
+>>>>>>> 06307f0 (update)
